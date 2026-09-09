@@ -10,8 +10,15 @@ export interface BacktestRequest {
 }
 export interface RemoteClient {
     authStatus(): Promise<Record<string, unknown>>;
-    createStrategy(name: string, code: string, onIdentity: (id: string) => Promise<void>): Promise<Record<string, unknown>>;
-    submitBacktest(request: BacktestRequest, onIdentity: (id: string) => Promise<void>): Promise<Record<string, unknown>>;
+    createStrategy(
+        name: string,
+        code: string,
+        onIdentity: (id: string) => Promise<void>,
+    ): Promise<Record<string, unknown>>;
+    submitBacktest(
+        request: BacktestRequest,
+        onIdentity: (id: string) => Promise<void>,
+    ): Promise<Record<string, unknown>>;
     backtestStatus(id: string): Promise<Record<string, unknown>>;
     backtestResult(id: string): Promise<Record<string, unknown>>;
 }

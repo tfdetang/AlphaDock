@@ -9,5 +9,9 @@ export interface ApiEntry {
     provenance: string;
 }
 export declare const catalog: ApiEntry[];
-export declare function selectCatalog(platform: Platform, query?: string, category?: string): ApiEntry[];
+export declare function selectCatalog(
+    platform: Platform,
+    query?: string,
+    category?: string,
+): ApiEntry[];
 export declare function renderCatalog(entries: ApiEntry[]): string;

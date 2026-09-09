@@ -22,18 +22,15 @@ const CROSS_ORIGIN_SENSITIVE_HEADERS = [
     "x-csrf-token",
 ];
 async function cancelBody(response) {
-    if (!response.body)
-        return;
+    if (!response.body) return;
     try {
         await response.body.cancel();
-    }
-    catch {
+    } catch {
         /* Discard failures must not expose transport details. */
     }
 }
 async function readBounded(response, maxBytes) {
-    if (!response.body)
-        return "";
+    if (!response.body) return "";
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let size = 0;
@@ -41,25 +38,29 @@ async function readBounded(response, maxBytes) {
     try {
         while (true) {
             const item = await reader.read();
-            if (item.done)
-                break;
+            if (item.done) break;
             size += item.value.byteLength;
             if (size > maxBytes) {
                 await reader.cancel().catch(() => undefined);
-                throw new CliError("RESPONSE_TOO_LARGE", "protocol", "Remote response exceeded the safe limit");
+                throw new CliError(
+                    "RESPONSE_TOO_LARGE",
+                    "protocol",
+                    "Remote response exceeded the safe limit",
+                );
             }
             output += decoder.decode(item.value, { stream: true });
         }
         output += decoder.decode();
         return output;
-    }
-    catch (error) {
-        if (error instanceof CliError)
-            throw error;
+    } catch (error) {
+        if (error instanceof CliError) throw error;
         await reader.cancel().catch(() => undefined);
-        throw new CliError("RESPONSE_STREAM_FAILED", "transport", "Remote response body could not be read");
-    }
-    finally {
+        throw new CliError(
+            "RESPONSE_STREAM_FAILED",
+            "transport",
+            "Remote response body could not be read",
+        );
+    } finally {
         reader.releaseLock();
     }
 }
@@ -73,8 +74,15 @@ export class SafeHttp {
         this.transport = transport;
     }
     allowed(url) {
-        if (url.protocol !== "https:" || !ORIGINS[this.platform].has(url.origin))
-            throw new CliError("ORIGIN_DENIED", "transport", "Remote origin is not allowed");
+        if (
+            url.protocol !== "https:" ||
+            !ORIGINS[this.platform].has(url.origin)
+        )
+            throw new CliError(
+                "ORIGIN_DENIED",
+                "transport",
+                "Remote origin is not allowed",
+            );
     }
     async request(input, options = {}) {
         let url = new URL(input);
@@ -88,8 +96,7 @@ export class SafeHttp {
             const headers = new Headers(requestHeaders);
             headers.delete("cookie");
             const cookie = await this.jar.getCookieString(url.href);
-            if (cookie)
-                headers.set("cookie", cookie);
+            if (cookie) headers.set("cookie", cookie);
             let response;
             try {
                 response = await this.transport(url.href, {
@@ -99,38 +106,58 @@ export class SafeHttp {
                     redirect: "manual",
                     signal: AbortSignal.timeout(30_000),
                 });
-            }
-            catch {
-                throw new CliError("TRANSPORT_FAILED", "transport", "Remote request failed");
+            } catch {
+                throw new CliError(
+                    "TRANSPORT_FAILED",
+                    "transport",
+                    "Remote request failed",
+                );
             }
             const getSetCookie = response.headers.getSetCookie?.() ?? [];
             for (const value of getSetCookie)
-                await this.jar.setCookie(value, url.href, { ignoreError: true });
+                await this.jar.setCookie(value, url.href, {
+                    ignoreError: true,
+                });
             const location = response.headers.get("location");
             if (response.status >= 300 && response.status < 400 && location) {
                 if (count === redirects) {
                     await cancelBody(response);
-                    throw new CliError("REDIRECT_LIMIT", "protocol", "Remote redirect limit exceeded");
+                    throw new CliError(
+                        "REDIRECT_LIMIT",
+                        "protocol",
+                        "Remote redirect limit exceeded",
+                    );
                 }
                 const next = new URL(location, url);
                 try {
                     this.allowed(next);
-                }
-                catch (error) {
+                } catch (error) {
                     await cancelBody(response);
                     throw error;
                 }
                 const crossOrigin = url.origin !== next.origin;
                 if (crossOrigin && (url.search || location.includes("?"))) {
                     await cancelBody(response);
-                    throw new CliError("CROSS_ORIGIN_TOKEN_REDIRECT", "protocol", "Token-bearing cross-origin redirect refused");
+                    throw new CliError(
+                        "CROSS_ORIGIN_TOKEN_REDIRECT",
+                        "protocol",
+                        "Token-bearing cross-origin redirect refused",
+                    );
                 }
-                if (crossOrigin &&
+                if (
+                    crossOrigin &&
                     (!["GET", "HEAD"].includes(method) ||
                         requestBody !== undefined ||
-                        CROSS_ORIGIN_SENSITIVE_HEADERS.some((name) => requestHeaders.has(name)))) {
+                        CROSS_ORIGIN_SENSITIVE_HEADERS.some((name) =>
+                            requestHeaders.has(name),
+                        ))
+                ) {
                     await cancelBody(response);
-                    throw new CliError("CROSS_ORIGIN_SENSITIVE_REDIRECT", "protocol", "Cross-origin redirect with sensitive request state refused");
+                    throw new CliError(
+                        "CROSS_ORIGIN_SENSITIVE_REDIRECT",
+                        "protocol",
+                        "Cross-origin redirect with sensitive request state refused",
+                    );
                 }
                 try {
                     await options.onRedirect?.({
@@ -138,13 +165,14 @@ export class SafeHttp {
                         to: new URL(next),
                         status: response.status,
                     });
-                }
-                finally {
+                } finally {
                     await cancelBody(response);
                 }
-                if (response.status === 303 ||
+                if (
+                    response.status === 303 ||
                     ((response.status === 301 || response.status === 302) &&
-                        method === "POST")) {
+                        method === "POST")
+                ) {
                     method = "GET";
                     requestBody = undefined;
                     for (const name of DOWNGRADE_HEADERS)
@@ -153,17 +181,35 @@ export class SafeHttp {
                 url = next;
                 continue;
             }
-            const body = await readBounded(response, options.maxBytes ?? 4_000_000);
-            return { status: response.status, url, headers: response.headers, body };
+            const body = await readBounded(
+                response,
+                options.maxBytes ?? 4_000_000,
+            );
+            return {
+                status: response.status,
+                url,
+                headers: response.headers,
+                body,
+            };
         }
-        throw new CliError("REDIRECT_LIMIT", "protocol", "Remote redirect limit exceeded");
+        throw new CliError(
+            "REDIRECT_LIMIT",
+            "protocol",
+            "Remote redirect limit exceeded",
+        );
     }
     async form(url, values, headers = {}) {
         return this.request(url, {
             method: "POST",
-            body: new URLSearchParams(Object.entries(values).map(([key, value]) => [key, String(value)])).toString(),
+            body: new URLSearchParams(
+                Object.entries(values).map(([key, value]) => [
+                    key,
+                    String(value),
+                ]),
+            ).toString(),
             headers: {
-                "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "content-type":
+                    "application/x-www-form-urlencoded; charset=UTF-8",
                 ...headers,
             },
         });
@@ -174,7 +220,9 @@ export class SafeHttp {
             ...(value === undefined ? {} : { body: JSON.stringify(value) }),
             headers: {
                 accept: "application/json",
-                ...(value === undefined ? {} : { "content-type": "application/json" }),
+                ...(value === undefined
+                    ? {}
+                    : { "content-type": "application/json" }),
                 ...headers,
             },
         });
@@ -186,9 +234,12 @@ export function parseJson(body) {
         if (!value || typeof value !== "object" || Array.isArray(value))
             throw new Error();
         return value;
-    }
-    catch {
-        throw new CliError("RESPONSE_INVALID", "protocol", "Remote response has an unexpected shape");
+    } catch {
+        throw new CliError(
+            "RESPONSE_INVALID",
+            "protocol",
+            "Remote response has an unexpected shape",
+        );
     }
 }
 //# sourceMappingURL=http.js.map

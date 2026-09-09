@@ -26,7 +26,13 @@ export interface NotebookExecutionReport {
     cleanedUp?: boolean;
     execution: ExecutionResult;
 }
-export declare function notebookExecutionReport(platform: Platform, kernelId: string, temporary: boolean, execution: ExecutionResult, cleanedUp?: boolean): NotebookExecutionReport;
+export declare function notebookExecutionReport(
+    platform: Platform,
+    kernelId: string,
+    temporary: boolean,
+    execution: ExecutionResult,
+    cleanedUp?: boolean,
+): NotebookExecutionReport;
 export interface NotebookSession {
     base: string;
     kernels: Array<{
@@ -52,13 +58,40 @@ interface SocketLike {
     send(data: string): void;
     close(): void;
 }
-export type SocketFactory = (url: URL, options: {
-    headers: Record<string, string>;
-    handshakeTimeout: number;
-    maxPayload: number;
-}) => SocketLike;
-export declare function consumeExecutionMessage(result: ExecutionResult, message: JupyterMessage, messageId: string): boolean;
-export declare function notebookSession(platform: Platform, http: SafeHttp): Promise<NotebookSession>;
-export declare function createKernel(session: NotebookSession, http: SafeHttp, jar: CookieJar): Promise<string>;
-export declare function deleteKernel(session: NotebookSession, id: string, http: SafeHttp, jar: CookieJar): Promise<boolean>;
-export declare function executeKernel(session: NotebookSession, kernelId: string, code: string, jar: CookieJar, timeoutMs?: number, maxBytes?: number, socketFactory?: SocketFactory): Promise<ExecutionResult>;
+export type SocketFactory = (
+    url: URL,
+    options: {
+        headers: Record<string, string>;
+        handshakeTimeout: number;
+        maxPayload: number;
+    },
+) => SocketLike;
+export declare function consumeExecutionMessage(
+    result: ExecutionResult,
+    message: JupyterMessage,
+    messageId: string,
+): boolean;
+export declare function notebookSession(
+    platform: Platform,
+    http: SafeHttp,
+): Promise<NotebookSession>;
+export declare function createKernel(
+    session: NotebookSession,
+    http: SafeHttp,
+    jar: CookieJar,
+): Promise<string>;
+export declare function deleteKernel(
+    session: NotebookSession,
+    id: string,
+    http: SafeHttp,
+    jar: CookieJar,
+): Promise<boolean>;
+export declare function executeKernel(
+    session: NotebookSession,
+    kernelId: string,
+    code: string,
+    jar: CookieJar,
+    timeoutMs?: number,
+    maxBytes?: number,
+    socketFactory?: SocketFactory,
+): Promise<ExecutionResult>;

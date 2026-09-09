@@ -2,8 +2,7 @@ import { CliError } from "../errors.js";
 import { parseJson } from "../http.js";
 const ROOT = "https://quant.10jqka.com.cn";
 function idOf(value, keys) {
-    if (!value || typeof value !== "object")
-        return;
+    if (!value || typeof value !== "object") return;
     for (const key of keys) {
         const item = value[key];
         if (typeof item === "string" || typeof item === "number")
@@ -12,7 +11,11 @@ function idOf(value, keys) {
 }
 function objectResult(value) {
     if (!value || typeof value !== "object" || Array.isArray(value))
-        throw new CliError("RESPONSE_INVALID", "protocol", "SuperMind result has an unexpected shape");
+        throw new CliError(
+            "RESPONSE_INVALID",
+            "protocol",
+            "SuperMind result has an unexpected shape",
+        );
     return value;
 }
 export class SuperMindClient {
@@ -28,16 +31,30 @@ export class SuperMindClient {
             "x-requested-with": "XMLHttpRequest",
         });
         if (response.status !== 200)
-            throw new CliError("REMOTE_REJECTED", "remote", "SuperMind request was rejected");
+            throw new CliError(
+                "REMOTE_REJECTED",
+                "remote",
+                "SuperMind request was rejected",
+            );
         if (/消耗积分|扣除积分|付费确认|充值后|购买套餐/.test(response.body))
-            throw new CliError("CHARGE_CONFIRMATION_REQUIRED", "remote", "SuperMind requires a charge confirmation; no continuation was attempted");
+            throw new CliError(
+                "CHARGE_CONFIRMATION_REQUIRED",
+                "remote",
+                "SuperMind requires a charge confirmation; no continuation was attempted",
+            );
         const envelope = parseJson(response.body);
         if (envelope.errorcode !== 0)
-            throw new CliError("REMOTE_REJECTED", "remote", "SuperMind returned an unsuccessful status");
+            throw new CliError(
+                "REMOTE_REJECTED",
+                "remote",
+                "SuperMind returned an unsuccessful status",
+            );
         return envelope.result;
     }
     async authStatus() {
-        const result = objectResult(await this.call("/platform/user/getauthdata", {}));
+        const result = objectResult(
+            await this.call("/platform/user/getauthdata", {}),
+        );
         return {
             ok: true,
             platform: "supermind",
@@ -57,20 +74,36 @@ export class SuperMindClient {
         });
         const id = idOf(created, ["_id", "algorithm_id", "algo_id", "id"]);
         if (!id)
-            throw new CliError("CREATE_UNVERIFIED", "remote", "Strategy creation outcome is unknown; do not retry automatically");
+            throw new CliError(
+                "CREATE_UNVERIFIED",
+                "remote",
+                "Strategy creation outcome is unknown; do not retry automatically",
+            );
         await onIdentity(id);
-        const readback = objectResult(await this.call("/platform/algorithms/queryinfo/", { algoId: id }));
+        const readback = objectResult(
+            await this.call("/platform/algorithms/queryinfo/", { algoId: id }),
+        );
         if (readback.algo_code !== code)
-            throw new CliError("SAVE_UNVERIFIED", "remote", "Strategy code readback did not match; the strategy ID was retained");
+            throw new CliError(
+                "SAVE_UNVERIFIED",
+                "remote",
+                "Strategy code readback did not match; the strategy ID was retained",
+            );
         return { platform: "supermind", strategyId: id, codeReadback: true };
     }
     async submitBacktest(request, onIdentity) {
-        const strategy = objectResult(await this.call("/platform/algorithms/queryinfo/", {
-            algoId: request.strategyId,
-        }));
+        const strategy = objectResult(
+            await this.call("/platform/algorithms/queryinfo/", {
+                algoId: request.strategyId,
+            }),
+        );
         const code = strategy.algo_code;
         if (typeof code !== "string")
-            throw new CliError("CODE_READBACK_FAILED", "protocol", "Saved strategy code could not be read");
+            throw new CliError(
+                "CODE_READBACK_FAILED",
+                "protocol",
+                "Saved strategy code could not be read",
+            );
         const submitted = await this.call("/platform/backtest/run/", {
             algoId: request.strategyId,
             code,
@@ -84,7 +117,11 @@ export class SuperMindClient {
         });
         const id = idOf(submitted, ["backtest_id", "backtestid", "_id", "id"]);
         if (!id)
-            throw new CliError("SUBMISSION_UNVERIFIED", "remote", "Backtest submission outcome is unknown; do not resubmit automatically");
+            throw new CliError(
+                "SUBMISSION_UNVERIFIED",
+                "remote",
+                "Backtest submission outcome is unknown; do not resubmit automatically",
+            );
         await onIdentity(id);
         return {
             platform: "supermind",
@@ -96,23 +133,44 @@ export class SuperMindClient {
         };
     }
     async backtestStatus(id) {
-        const info = objectResult(await this.call("/platform/backtest/queryinfo/", { backTestId: id }));
+        const info = objectResult(
+            await this.call("/platform/backtest/queryinfo/", {
+                backTestId: id,
+            }),
+        );
         const returned = idOf(info, ["backtest_id", "_id", "id"]);
         if (returned && returned !== id)
-            throw new CliError("IDENTITY_MISMATCH", "protocol", "SuperMind returned a different backtest ID");
+            throw new CliError(
+                "IDENTITY_MISMATCH",
+                "protocol",
+                "SuperMind returned a different backtest ID",
+            );
         const raw = String(info.status ?? "").toUpperCase();
-        const state = raw === "SUCCESS"
-            ? "success"
-            : ["FAIL", "FAILED", "CANCEL", "CANCELLED"].includes(raw)
-                ? "failed"
-                : ["COMPILING", "RUNNING", "WAITING", "PENDING", "QUEUED"].includes(raw)
+        const state =
+            raw === "SUCCESS"
+                ? "success"
+                : ["FAIL", "FAILED", "CANCEL", "CANCELLED"].includes(raw)
+                  ? "failed"
+                  : [
+                          "COMPILING",
+                          "RUNNING",
+                          "WAITING",
+                          "PENDING",
+                          "QUEUED",
+                      ].includes(raw)
                     ? "running"
                     : "unknown";
         if (state === "unknown")
-            throw new CliError("STATUS_UNKNOWN", "protocol", "SuperMind returned an unknown backtest state");
-        const parameters = Object.fromEntries(["begin_date", "end_date", "capital_base", "frequency", "run_env"]
-            .filter((key) => key in info)
-            .map((key) => [key, info[key]]));
+            throw new CliError(
+                "STATUS_UNKNOWN",
+                "protocol",
+                "SuperMind returned an unknown backtest state",
+            );
+        const parameters = Object.fromEntries(
+            ["begin_date", "end_date", "capital_base", "frequency", "run_env"]
+                .filter((key) => key in info)
+                .map((key) => [key, info[key]]),
+        );
         return {
             platform: "supermind",
             backtestId: id,
@@ -150,7 +208,9 @@ export class SuperMindClient {
             };
         }
         const [metrics, trades, errorLogs, strategyLogs] = await Promise.all([
-            this.call("/platform/backtest/backtestperformance", { backTestId: id }),
+            this.call("/platform/backtest/backtestperformance", {
+                backTestId: id,
+            }),
             this.call("/platform/backtest/tradelog", {
                 backTestId: id,
                 page: 1,
@@ -168,13 +228,18 @@ export class SuperMindClient {
                 num: 100,
             }),
         ]);
-        const verified = status.state === "success" &&
+        const verified =
+            status.state === "success" &&
             !!metrics &&
             typeof metrics === "object" &&
             !Array.isArray(metrics) &&
             Object.keys(metrics).length > 0;
         if (status.state === "success" && !verified)
-            throw new CliError("RESULT_UNVERIFIED", "protocol", "Terminal status lacked verified performance metrics");
+            throw new CliError(
+                "RESULT_UNVERIFIED",
+                "protocol",
+                "Terminal status lacked verified performance metrics",
+            );
         return {
             ...status,
             verified,

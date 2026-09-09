@@ -7,9 +7,10 @@ export async function clientFor(platform) {
     const jar = await loadCookieJar(await cookieFileFor(platform));
     const http = new SafeHttp(platform, jar);
     return {
-        client: platform === "joinquant"
-            ? new JoinQuantClient(http)
-            : new SuperMindClient(http),
+        client:
+            platform === "joinquant"
+                ? new JoinQuantClient(http)
+                : new SuperMindClient(http),
         http,
         jar,
     };

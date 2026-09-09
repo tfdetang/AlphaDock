@@ -1,4 +1,12 @@
-export type ErrorStage = "input" | "config" | "auth" | "transport" | "protocol" | "journal" | "output" | "remote";
+export type ErrorStage =
+    | "input"
+    | "config"
+    | "auth"
+    | "transport"
+    | "protocol"
+    | "journal"
+    | "output"
+    | "remote";
 export declare class CliError extends Error {
     readonly code: string;
     readonly stage: ErrorStage;
