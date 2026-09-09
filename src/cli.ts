@@ -24,6 +24,8 @@ import {
   deleteKernel,
   executeKernel,
   notebookExecutionReport,
+  notebookByteLimit,
+  DEFAULT_NOTEBOOK_BYTES,
 } from "./jupyter.js";
 import { catalog, renderCatalog, selectCatalog } from "./catalog.js";
 import { waitForTerminal } from "./wait.js";
@@ -122,6 +124,8 @@ export function buildProgram(): Command {
     .argument("<file>", "local Python file")
     .addOption(platformOption())
     .option("--kernel-id <id>", "explicit existing kernel ID")
+    .option("--max-output-bytes <bytes>", "total incoming channel byte budget (max 64000000)", String(DEFAULT_NOTEBOOK_BYTES))
+    .option("--max-message-bytes <bytes>", "single WebSocket message byte budget (max 64000000)", String(DEFAULT_NOTEBOOK_BYTES))
     .option(
       "--temporary",
       "create and clean up an AlphaDock-owned temporary kernel",
@@ -137,6 +141,8 @@ export function buildProgram(): Command {
           platform: Platform;
           kernelId?: string;
           temporary?: boolean;
+          maxOutputBytes: string;
+          maxMessageBytes: string;
           confirmRemoteExecution?: boolean;
         },
       ) => {
@@ -155,6 +161,8 @@ export function buildProgram(): Command {
             "input",
             "Choose exactly one of --kernel-id or --temporary",
           );
+        const maxOutputBytes = notebookByteLimit(options.maxOutputBytes);
+        const maxMessageBytes = notebookByteLimit(options.maxMessageBytes);
         if (options.kernelId) assertId(options.kernelId, "kernel-id");
         const code = await readFile(resolve(file), "utf8");
         if (!code.trim())
@@ -184,7 +192,7 @@ export function buildProgram(): Command {
             "A kernel must be selected",
           );
         try {
-          const result = await executeKernel(session, id, code, jar);
+          const result = await executeKernel(session, id, code, jar, 90_000, maxOutputBytes, undefined, maxMessageBytes);
           const cleanedUp = owned
             ? await deleteKernel(session, id, http, jar).catch(() => false)
             : undefined;
@@ -207,6 +215,7 @@ export function buildProgram(): Command {
                 "EXECUTION_UNVERIFIED",
                 "remote",
                 `Execution was not verified; owned temporary kernel retained or cleanup unverified: ${id}`,
+                error instanceof CliError ? error.diagnostics : undefined,
               );
           }
           throw error;

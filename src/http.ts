@@ -1,5 +1,6 @@
 import type { CookieJar } from "tough-cookie";
-import { CliError } from "./errors.js";
+import { CliError, type TransportDiagnostics } from "./errors.js";
+import { transportDiagnostics } from "./transport-diagnostics.js";
 
 export interface ResponseLike {
   status: number;
@@ -57,6 +58,7 @@ async function cancelBody(response: ResponseLike): Promise<void> {
 async function readBounded(
   response: ResponseLike,
   maxBytes: number,
+  diagnostics: (error: unknown) => TransportDiagnostics,
 ): Promise<string> {
   if (!response.body) return "";
   const reader = response.body.getReader();
@@ -87,6 +89,7 @@ async function readBounded(
       "RESPONSE_STREAM_FAILED",
       "transport",
       "Remote response body could not be read",
+      diagnostics(error),
     );
   } finally {
     reader.releaseLock();
@@ -118,7 +121,12 @@ export class SafeHttp {
       onRedirect?: (info: RedirectInfo) => Promise<void>;
     } = {},
   ): Promise<HttpResponse> {
-    let url = new URL(input);
+    let url: URL;
+    try {
+      url = new URL(input);
+    } catch {
+      throw new CliError("URL_INVALID", "input", "Remote URL is invalid");
+    }
     let method = options.method ?? "GET";
     let requestBody = options.body;
     const redirects = options.redirects ?? 8;
@@ -131,6 +139,7 @@ export class SafeHttp {
       const cookie = await this.jar.getCookieString(url.href);
       if (cookie) headers.set("cookie", cookie);
       let response: ResponseLike;
+      const startedAt = performance.now();
       try {
         response = await this.transport(url.href, {
           method,
@@ -139,11 +148,12 @@ export class SafeHttp {
           redirect: "manual",
           signal: AbortSignal.timeout(30_000),
         });
-      } catch {
+      } catch (error) {
         throw new CliError(
           "TRANSPORT_FAILED",
           "transport",
           "Remote request failed",
+          transportDiagnostics(error, url, method, startedAt, count, "request"),
         );
       }
       const getSetCookie =
@@ -214,7 +224,19 @@ export class SafeHttp {
         url = next;
         continue;
       }
-      const body = await readBounded(response, options.maxBytes ?? 4_000_000);
+      const body = await readBounded(
+        response,
+        options.maxBytes ?? 4_000_000,
+        (error) =>
+          transportDiagnostics(
+            error,
+            url,
+            method,
+            startedAt,
+            count,
+            "response_body",
+          ),
+      );
       return { status: response.status, url, headers: response.headers, body };
     }
     throw new CliError(

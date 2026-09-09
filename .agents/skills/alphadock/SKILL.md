@@ -26,6 +26,7 @@ description: 使用 AlphaDock CLI 在聚宽 JoinQuant 或同花顺 SuperMind 上
 - `api` 和帮助命令离线；其他命令可能访问真实账户。确认标志不是授权本身：用户授权后才能传 `--confirm-remote-write` / `--confirm-remote-execution`。
 - Cookie 只通过外部文件路径交给 CLI；不把文件内容、Cookie、token 写入提示词、命令行、仓库或日志。不替用户登录、刷新凭据或开启付费功能。
 - 新建专用策略，不修改用户已有策略。Notebook 优先 `--temporary`；已有 kernel 可能带有用户状态，未经明确授权不要执行。
+- Notebook 批量取数先读 [小批量取数与断连](references/cli-workflow.md#小批量取数与断连)：只取必要字段、小页串行执行，完整校验并落盘后才推进游标。断连后即使缩小批次也不能自动重发；复用 kernel 不保证通道稳定。
 - 创建/提交失败且结果未知时，先保留 operation ID、远程 ID 和本地 journal，禁止自动重试或删 journal 绕过重复保护。只做已知 ID 的只读查询；无法确认则询问用户。
 - `accepted: true` 不等于回测完成；退出码 0 / `ok: true` 也不等于策略成功。读 `state`、`verified`、错误日志与 `bounds`。超时不表示取消。
 - 结果可能分页/截断；`[]` 表示已返回的空集合，`null` 表示不可用，不能互换。不要把买卖金额曲线当成逐笔成交，也不要把日志 `total` 当错误数。

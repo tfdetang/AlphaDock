@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import type { CookieJar } from "tough-cookie";
 import { CliError } from "./errors.js";
+import { safeCauseCode } from "./transport-diagnostics.js";
 import { SafeHttp, parseJson } from "./http.js";
 import type { Platform } from "./storage.js";
 
@@ -49,7 +50,9 @@ export interface JupyterMessage {
   content?: Record<string, unknown>;
 }
 interface SocketLike {
-  once(event: "open" | "error" | "close", listener: () => void): this;
+  once(event: "open", listener: () => void): this;
+  once(event: "error", listener: (error?: unknown) => void): this;
+  once(event: "close", listener: (code?: number) => void): this;
   on(event: "message", listener: (raw: Buffer) => void): this;
   send(data: string): void;
   close(): void;
@@ -78,12 +81,12 @@ export function consumeExecutionMessage(
   else if (type === "stream")
     result.streams.push({
       name: String(content.name ?? "stdout"),
-      text: String(content.text ?? "").slice(0, 100_000),
+      text: String(content.text ?? ""),
     });
   else if (type === "error")
     result.errors.push({
       name: String(content.ename ?? "Error"),
-      value: String(content.evalue ?? "").slice(0, 10_000),
+      value: String(content.evalue ?? ""),
     });
   else if (type === "display_data" || type === "execute_result") {
     const data: Record<string, unknown> =
@@ -93,7 +96,7 @@ export function consumeExecutionMessage(
     const plain = data["text/plain"];
     result.displays.push({
       mimeTypes: Object.keys(data),
-      ...(typeof plain === "string" ? { text: plain.slice(0, 100_000) } : {}),
+      ...(typeof plain === "string" ? { text: plain } : {}),
     });
   }
   return Boolean(result.reply && result.idle);
@@ -155,7 +158,12 @@ export async function notebookSession(
       "remote",
       "Existing kernels could not be listed",
     );
-  const kernelsValue: unknown = JSON.parse(kernelsResponse.body);
+  let kernelsValue: unknown;
+  try {
+    kernelsValue = JSON.parse(kernelsResponse.body);
+  } catch {
+    throw new CliError("RESPONSE_INVALID", "protocol", "Kernel list is not valid JSON");
+  }
   if (!Array.isArray(kernelsValue))
     throw new CliError(
       "RESPONSE_INVALID",
@@ -230,6 +238,16 @@ export async function deleteKernel(
   return response.status === 204;
 }
 
+export const DEFAULT_NOTEBOOK_BYTES = 1_000_000;
+export const MAX_NOTEBOOK_BYTES = 64_000_000;
+
+export function notebookByteLimit(value: string | number): number {
+  const number = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+  if (typeof number !== "number" || !Number.isSafeInteger(number) || number < 1 || number > MAX_NOTEBOOK_BYTES)
+    throw new CliError("INVALID_OUTPUT_LIMIT", "input", "Notebook byte limits must be integers from 1 to 64000000");
+  return number;
+}
+
 // SAFETY: SocketLike is the exact event/send/close subset implemented by ws; the narrower fixture seam intentionally omits unused overloads.
 export async function executeKernel(
   session: NotebookSession,
@@ -237,15 +255,23 @@ export async function executeKernel(
   code: string,
   jar: CookieJar,
   timeoutMs = 90_000,
-  maxBytes = 1_000_000,
+  maxBytes = DEFAULT_NOTEBOOK_BYTES,
   socketFactory: SocketFactory = (url, options) =>
     new WebSocket(url, options) as unknown as SocketLike,
+  maxMessageBytes = DEFAULT_NOTEBOOK_BYTES,
 ): Promise<ExecutionResult> {
+  notebookByteLimit(maxBytes);
+  notebookByteLimit(maxMessageBytes);
   const messageId = randomUUID(),
     sessionId = randomUUID();
-  const endpoint = new URL(
-    `${session.base}api/kernels/${encodeURIComponent(kernelId)}/channels`,
-  );
+  let endpoint: URL;
+  let origin: string;
+  try {
+    endpoint = new URL(`${session.base}api/kernels/${encodeURIComponent(kernelId)}/channels`);
+    origin = endpoint.origin;
+  } catch {
+    throw new CliError("URL_INVALID", "input", "Notebook base is invalid");
+  }
   endpoint.protocol = "wss:";
   endpoint.searchParams.set("session_id", sessionId);
   const cookie = await jar.getCookieString(endpoint.href);
@@ -258,13 +284,33 @@ export async function executeKernel(
     errors: [],
   };
   let bytes = 0;
+  let messages = 0;
+  const startedAt = performance.now();
+  const failure = (code: string, message: string, causeCode = "UNKNOWN", closeCode?: number) =>
+    new CliError(code, "remote", message, {
+      operation: "notebook_execute",
+      failurePhase: "channel",
+      causeCode,
+      elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)),
+      timeoutMs,
+      receivedBytes: bytes,
+      receivedMessages: messages,
+      maxMessageBytes,
+      maxTotalBytes: maxBytes,
+      reply: result.reply === "ok" || result.reply === "error" || result.reply === "abort"
+        ? result.reply : result.reply ? "unknown" : "missing",
+      idle: result.idle,
+      ...(typeof closeCode === "number" && Number.isInteger(closeCode) && closeCode >= 1000 && closeCode <= 4999 ? { closeCode } : {}),
+    });
   return new Promise((resolve, reject) => {
+    let socket: SocketLike | undefined;
     let settled = false;
     const finish = (error?: CliError) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      socket.close();
+      // Closing an already failed socket must not replace the original failure.
+      try { socket?.close(); } catch { /* no retry or second settlement */ }
       if (error) reject(error);
       else {
         result.state =
@@ -277,20 +323,27 @@ export async function executeKernel(
     const timer = setTimeout(
       () =>
         finish(
-          new CliError(
+          failure(
             "EXECUTION_UNVERIFIED",
-            "remote",
             "Notebook execution timed out; it was not retried",
+            "TIMEOUT",
           ),
         ),
       timeoutMs,
     );
-    const socket = socketFactory(endpoint, {
-      headers: { cookie, origin: new URL(session.base).origin },
-      handshakeTimeout: 20_000,
-      maxPayload: maxBytes,
-    });
-    socket.once("open", () =>
+    try {
+      socket = socketFactory(endpoint, {
+        headers: { cookie, origin },
+        handshakeTimeout: 20_000,
+        maxPayload: maxMessageBytes,
+      });
+    } catch (error) {
+      finish(failure("EXECUTION_UNVERIFIED", "Notebook channel could not be opened", safeCauseCode(error)));
+      return;
+    }
+    socket.once("open", () => {
+      if (settled || !socket) return;
+      try {
       socket.send(
         JSON.stringify({
           header: {
@@ -314,18 +367,22 @@ export async function executeKernel(
           },
           buffers: [],
         }),
-      ),
-    );
+      );
+      } catch (error) {
+        finish(failure("EXECUTION_UNVERIFIED", "Notebook channel send failed; execution was not retried", safeCauseCode(error)));
+      }
+    });
     socket.on("message", (raw) => {
-      bytes += Buffer.byteLength(raw.toString());
-      if (bytes > maxBytes)
-        return finish(
-          new CliError(
-            "OUTPUT_LIMIT",
-            "remote",
-            "Notebook output exceeded the safe limit",
-          ),
-        );
+      if (settled) return;
+      const size = raw.byteLength;
+      bytes += size;
+      messages++;
+      if (size > maxMessageBytes || bytes > maxBytes)
+        return finish(failure(
+          "OUTPUT_LIMIT",
+          "Notebook output exceeded the safe limit; execution may be incomplete",
+          size > maxMessageBytes ? "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" : "TOTAL_BYTES_LIMIT",
+        ));
       let message: JupyterMessage;
       try {
         message = JSON.parse(raw.toString()) as JupyterMessage;
@@ -335,29 +392,25 @@ export async function executeKernel(
             "CHANNEL_FRAME_INVALID",
             "protocol",
             "Notebook channel returned an unsupported frame",
+            failure("CHANNEL_FRAME_INVALID", "Unsupported frame").diagnostics,
           ),
         );
       }
+      if (!message || typeof message !== "object" || Array.isArray(message))
+        return finish(failure("CHANNEL_FRAME_INVALID", "Notebook channel returned an unsupported frame"));
       if (consumeExecutionMessage(result, message, messageId)) finish();
     });
-    socket.once("error", () =>
-      finish(
-        new CliError(
-          "EXECUTION_UNVERIFIED",
-          "remote",
-          "Notebook channel failed; execution was not retried",
-        ),
-      ),
-    );
-    socket.once("close", () => {
+    socket.once("error", (error) => {
+      const cause = safeCauseCode(error);
+      finish(failure(
+        cause === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" ? "OUTPUT_LIMIT" : "EXECUTION_UNVERIFIED",
+        "Notebook channel failed; execution was not retried",
+        cause,
+      ));
+    });
+    socket.once("close", (code) => {
       if (!settled)
-        finish(
-          new CliError(
-            "EXECUTION_UNVERIFIED",
-            "remote",
-            "Notebook channel closed before completion",
-          ),
-        );
+        finish(failure("EXECUTION_UNVERIFIED", "Notebook channel closed before completion", "UNKNOWN", code));
     });
   });
 }

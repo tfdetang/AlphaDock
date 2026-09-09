@@ -8,11 +8,30 @@ export type ErrorStage =
   | "output"
   | "remote";
 
+export interface TransportDiagnostics {
+  operation: string;
+  method?: string;
+  hostname?: string;
+  failurePhase: "request" | "response_body" | "channel";
+  elapsedMs: number;
+  timeoutMs: number;
+  redirectHop?: number;
+  causeCode: string;
+  receivedBytes?: number;
+  receivedMessages?: number;
+  maxMessageBytes?: number;
+  maxTotalBytes?: number;
+  reply?: "ok" | "error" | "abort" | "unknown" | "missing";
+  idle?: boolean;
+  closeCode?: number;
+}
+
 export class CliError extends Error {
   constructor(
     public readonly code: string,
     public readonly stage: ErrorStage,
     message: string,
+    public readonly diagnostics?: TransportDiagnostics,
   ) {
     super(message);
     this.name = "CliError";
@@ -21,12 +40,22 @@ export class CliError extends Error {
 
 export function publicError(error: unknown): {
   ok: false;
-  error: { code: string; stage: ErrorStage; message: string };
+  error: {
+    code: string;
+    stage: ErrorStage;
+    message: string;
+    diagnostics?: TransportDiagnostics;
+  };
 } {
   if (error instanceof CliError)
     return {
       ok: false,
-      error: { code: error.code, stage: error.stage, message: error.message },
+      error: {
+        code: error.code,
+        stage: error.stage,
+        message: error.message,
+        ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}),
+      },
     };
   return {
     ok: false,
