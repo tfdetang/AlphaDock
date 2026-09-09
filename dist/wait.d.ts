@@ -1,0 +1,1 @@
+export declare function waitForTerminal(readStatus: () => Promise<Record<string, unknown>>, timeoutMs: number, intervalMs: number, clock?: () => number, sleep?: (milliseconds: number) => Promise<void>): Promise<Record<string, unknown> | undefined>;

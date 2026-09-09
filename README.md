@@ -16,16 +16,16 @@ npm install --global ./alphadock-0.1.0.tgz
 alphadock --help
 ```
 
-The package is `UNLICENSED`. Package contents are restricted to `dist/`, this README, package metadata, and `.agents/skills/alphadock/`; tests, `.pi/`, validation reports, config, journals, and credentials are excluded. The `prepare` script builds TypeScript for Git-source installs and packing; it does not access platform accounts.
+The package is `UNLICENSED`. Package contents include `dist/`, this README, package metadata, and `.agents/skills/alphadock/`; tests, `.pi/`, validation reports, config, journals, and credentials are excluded. Pre-compiled JavaScript is included so installation does not require a TypeScript compiler on the user machine.
 
 ## Install from GitHub with npm
 
 ```sh
-npm install --global git+https://github.com/tfdetang/AlphaDock.git
+npm install --global --allow-git=root git+https://github.com/tfdetang/AlphaDock.git
 alphadock --help
 ```
 
-This installs the CLI and bundled skill through npm directly from GitHub; it does not require an npm registry release named `alphadock`. Git-source installation requires Git and enabled build scripts. On npm 12, also pass `--allow-git=root` to explicitly permit this top-level Git dependency for the command. For reproducibility, append `#<commit-sha>` to the Git URL.
+This installs the CLI and bundled skill through npm directly from GitHub; it does not require an npm registry release named `alphadock` or a local TypeScript build toolchain. On npm 12, pass `--allow-git=root` to explicitly permit this top-level Git dependency for the command. For reproducibility, append `#<commit-sha>` to the Git URL.
 
 ## Agent skill
 
