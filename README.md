@@ -16,7 +16,31 @@ npm install --global ./alphadock-0.1.0.tgz
 alphadock --help
 ```
 
-The package is `UNLICENSED`. Published package contents are restricted to `dist/` and this README; tests, `.pi/`, validation reports, config, journals, and credentials are excluded.
+The package is `UNLICENSED`. Package contents are restricted to `dist/`, this README, package metadata, and `.agents/skills/alphadock/`; tests, `.pi/`, validation reports, config, journals, and credentials are excluded. The `prepare` script builds TypeScript for Git-source installs and packing; it does not access platform accounts.
+
+## Install from GitHub with npm
+
+```sh
+npm install --global git+https://github.com/tfdetang/AlphaDock.git
+alphadock --help
+```
+
+This installs the CLI and bundled skill through npm directly from GitHub; it does not require an npm registry release named `alphadock`. Git-source installation requires Git and enabled build scripts. On npm 12, also pass `--allow-git=root` to explicitly permit this top-level Git dependency for the command. For reproducibility, append `#<commit-sha>` to the Git URL.
+
+## Agent skill
+
+The project skill lives at [`.agents/skills/alphadock/SKILL.md`](.agents/skills/alphadock/SKILL.md). It provides a small entry point with on-demand references for CLI workflows, platform-specific strategy skeletons, and a documentation lookup path when the curated catalog is insufficient.
+
+The skill and all reference files are included in the npm tarball. Installing with npm places the files on disk; agents still need to discover or register them. After the global npm installation above, Pi users can register the package:
+
+```sh
+pi install "$(npm root -g)/alphadock"
+# Then reload skills in Pi and invoke /skill:alphadock.
+```
+
+Alternatively, Pi can install the Git package directly with `pi install git:github.com/tfdetang/AlphaDock`; the `pi.skills` manifest declares the bundled skill. This alternative loads the skill but does not promise a global `alphadock` command—use the npm global install above for that.
+
+In a trusted source checkout, Pi also discovers `.agents/skills/alphadock/` directly. Other Agent Skills-compatible tools can load the entry file or copy the entire `alphadock/` skill directory from `$(npm root -g)/alphadock/.agents/skills/` into their configured skills location. Keep the reference files with `SKILL.md`. Installing a skill does not grant authorization for remote operations.
 
 ## Authentication and local state
 

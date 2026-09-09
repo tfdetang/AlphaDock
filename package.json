@@ -6,8 +6,17 @@
   "license": "UNLICENSED",
   "engines": { "node": ">=22" },
   "bin": { "alphadock": "dist/cli.js" },
-  "files": ["dist", "README.md"],
+  "files": ["dist", "README.md", ".agents/skills/alphadock"],
+  "keywords": ["pi-package", "agent-skills", "joinquant", "supermind"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tfdetang/AlphaDock.git"
+  },
+  "pi": {
+    "skills": ["./.agents/skills/alphadock"]
+  },
   "scripts": {
+    "prepare": "npm run build",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && tsc -p tsconfig.json && node --test dist-test/test/*.test.js",

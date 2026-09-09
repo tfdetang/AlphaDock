@@ -5,3 +5,15 @@ dist-test/
 coverage/
 .env
 .env.*
+
+# Agent runtime state and private platform validation evidence.
+/.pi/
+/docs/validation/
+
+# External session exports must never be committed.
+/cookies/
+*.cookies.json
+
+# Keep .agents/skills/ tracked: these are shared agent instructions.
+npm-debug.log*
+.DS_Store
