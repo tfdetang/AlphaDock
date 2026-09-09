@@ -1,0 +1,27 @@
+{
+  "name": "alphadock",
+  "version": "0.1.0",
+  "description": "Safety-focused CLI for existing JoinQuant and SuperMind research sessions",
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=22" },
+  "bin": { "alphadock": "dist/cli.js" },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && tsc -p tsconfig.json && node --test dist-test/test/*.test.js",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "cheerio": "1.1.2",
+    "commander": "14.0.2",
+    "tough-cookie": "6.0.0",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/ws": "8.18.1",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+dist-test/
+*.tgz
+coverage/
+.env
+.env.*
