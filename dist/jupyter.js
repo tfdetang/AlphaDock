@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { CliError } from "./errors.js";
 import { safeCauseCode } from "./transport-diagnostics.js";
-import { startNotebookServer } from "./notebook-startup.js";
+import { startNotebookServer, } from "./notebook-startup.js";
 import { parseJson } from "./http.js";
 export function notebookExecutionReport(platform, kernelId, temporary, execution, cleanedUp) {
     return {

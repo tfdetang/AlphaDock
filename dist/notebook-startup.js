@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { load } from "cheerio";
 import { CliError } from "./errors.js";
 import { parseJson } from "./http.js";
-import { createJournal, home, sha256, updateJournal } from "./storage.js";
+import { createJournal, home, sha256, updateJournal, } from "./storage.js";
 const ORIGIN = "https://supermind.10jqka.com.cn";
 const HUB = `${ORIGIN}/notebook/hub/`;
 const PROFILE_LABEL = "Python 3.8 升级Python环境";
@@ -19,12 +19,15 @@ async function serverState(http) {
     if (response.status !== 200)
         blocked("Authenticated server state is unavailable");
     const model = parseJson(response.body);
-    if (typeof model.name !== "string" || !model.name || model.name.length > 256 ||
+    if (typeof model.name !== "string" ||
+        !model.name ||
+        model.name.length > 256 ||
         ![null, "spawn", "stop"].includes(model.pending))
         blocked("Server state schema is not recognized");
     const base = `${ORIGIN}/notebook/user/${encodeURIComponent(model.name)}/`;
     // The legacy model exposes server URL + pending; newer hubs also expose ready.
-    let ready = model.pending === null && model.server === `/notebook/user/${encodeURIComponent(model.name)}/`;
+    let ready = model.pending === null &&
+        model.server === `/notebook/user/${encodeURIComponent(model.name)}/`;
     if (model.servers && typeof model.servers === "object") {
         const server = model.servers[""];
         if (server && typeof server === "object" && "ready" in server)
@@ -37,7 +40,10 @@ async function serverState(http) {
 function startupForm(page, name) {
     if (page.status !== 200 || page.url.origin !== ORIGIN)
         blocked("Server startup page is not recognized");
-    const allowed = new Set(["/notebook/hub/spawn", `/notebook/hub/spawn/${encodeURIComponent(name)}`]);
+    const allowed = new Set([
+        "/notebook/hub/spawn",
+        `/notebook/hub/spawn/${encodeURIComponent(name)}`,
+    ]);
     if (!allowed.has(page.url.pathname))
         blocked("Only the default research server can be started");
     const $ = load(page.body);
@@ -58,7 +64,10 @@ function startupForm(page, name) {
     catch {
         return blocked("Server startup target is invalid");
     }
-    if (target.origin !== ORIGIN || target.pathname !== "/notebook/hub/spawn" || target.username || target.password)
+    if (target.origin !== ORIGIN ||
+        target.pathname !== "/notebook/hub/spawn" ||
+        target.username ||
+        target.password)
         blocked("Server startup target is unsupported");
     const values = {};
     let profiles = 0;
@@ -76,7 +85,9 @@ function startupForm(page, name) {
                 values.profile = value;
             }
         }
-        else if (field === "_xsrf" && type === "hidden" && values._xsrf === undefined) {
+        else if (field === "_xsrf" &&
+            type === "hidden" &&
+            values._xsrf === undefined) {
             const value = input.attr("value");
             if (!value || value.length > 4096)
                 blocked("Startup CSRF field is invalid");
@@ -97,7 +108,8 @@ export async function startNotebookServer(platform, page, http, jar, controls = 
     const polls = controls.polls ?? 24;
     if (!Number.isInteger(polls) || polls < 1 || polls > 24)
         throw new CliError("INVALID_POLL_LIMIT", "input", "Startup polling must be bounded");
-    const pause = controls.pause ?? (() => new Promise(resolve => setTimeout(resolve, 5000)));
+    const pause = controls.pause ??
+        (() => new Promise((resolve) => setTimeout(resolve, 5000)));
     let state = await serverState(http);
     // A pre-existing startup is only observed, never resubmitted or labelled Python 3.8.
     if (state.ready)
@@ -110,13 +122,16 @@ export async function startNotebookServer(platform, page, http, jar, controls = 
             if (state.base !== identity)
                 blocked("Server identity changed while waiting");
             if (state.ready)
-                return { base: state.base, report: { submitted: false, state: "ready" } };
+                return {
+                    base: state.base,
+                    report: { submitted: false, state: "ready" },
+                };
         }
         throw new CliError("SERVER_START_UNVERIFIED", "remote", "Existing server transition did not become ready; no startup was submitted");
     }
     const form = startupForm(page, state.name);
     const cookies = await jar.getCookies(form.url);
-    const xsrf = cookies.find(cookie => cookie.key === "_xsrf");
+    const xsrf = cookies.find((cookie) => cookie.key === "_xsrf");
     const headers = {};
     if (xsrf) {
         try {
@@ -128,7 +143,9 @@ export async function startNotebookServer(platform, page, http, jar, controls = 
     }
     const targetHash = sha256(state.base);
     const journal = await createJournal("server-start", platform, {
-        targetHash, profile: "python38", attempt: randomUUID(),
+        targetHash,
+        profile: "python38",
+        attempt: randomUUID(),
     });
     const locks = join(home(), "server-start-locks");
     await mkdir(locks, { recursive: true, mode: 0o700 });
@@ -151,27 +168,38 @@ export async function startNotebookServer(platform, page, http, jar, controls = 
         if (!state.ready && !state.pending) {
             journal.value.stage = "starting";
             await updateJournal(journal.path, journal.value);
-            await http.request("https://supermind.10jqka.com.cn/notebook/hub/spawn", {
+            await http
+                .request("https://supermind.10jqka.com.cn/notebook/hub/spawn", {
                 method: "POST",
-                headers: { ...headers, origin: ORIGIN, referer: `${HUB}spawn`, "content-type": "application/x-www-form-urlencoded" },
+                headers: {
+                    ...headers,
+                    origin: ORIGIN,
+                    referer: `${HUB}spawn`,
+                    "content-type": "application/x-www-form-urlencoded",
+                },
                 body: new URLSearchParams(form.values).toString(),
                 onRedirect: async ({ to, status }) => {
-                    if (![302, 303].includes(status) || to.origin !== ORIGIN ||
+                    if (![302, 303].includes(status) ||
+                        to.origin !== ORIGIN ||
                         !(/^\/notebook\/hub\/spawn-pending(?:\/|$)/.test(to.pathname) ||
-                            to.pathname === `/notebook/user/${encodeURIComponent(state.name)}/`))
+                            to.pathname ===
+                                `/notebook/user/${encodeURIComponent(state.name)}/`))
                         blocked("Startup returned an unapproved redirect; no redirect was followed");
                     // Stop before following any redirect: 307/308 must never replay the POST,
                     // and GET /spawn can itself start a server on some JupyterHub versions.
                     throw new CliError("SERVER_START_REDIRECT", "protocol", "Startup submitted; inspect state without following redirects");
                 },
-            }).then(response => {
+            })
+                .then((response) => {
                 if (![200, 201, 202].includes(response.status))
                     throw new CliError("SERVER_START_UNVERIFIED", "remote", "Server startup response was not accepted");
                 const text = load(response.body)("body").text();
                 if (/付费|计费|支付|充值|验证码|billing|payment|captcha/i.test(text))
                     blocked("Startup requires further confirmation");
-            }).catch(error => {
-                if (!(error instanceof CliError) || error.code !== "SERVER_START_REDIRECT")
+            })
+                .catch((error) => {
+                if (!(error instanceof CliError) ||
+                    error.code !== "SERVER_START_REDIRECT")
                     throw error;
             });
             submitted = true;
@@ -185,7 +213,15 @@ export async function startNotebookServer(platform, page, http, jar, controls = 
                 journal.value.stage = submitted ? "ready" : "observed_ready";
                 await updateJournal(journal.path, journal.value);
                 await rmdir(lock);
-                return { base: state.base, report: { ...(submitted ? { profile: "python38" } : {}), submitted, state: "ready", operationId: journal.value.operationId } };
+                return {
+                    base: state.base,
+                    report: {
+                        ...(submitted ? { profile: "python38" } : {}),
+                        submitted,
+                        state: "ready",
+                        operationId: journal.value.operationId,
+                    },
+                };
             }
             if (i + 1 < polls)
                 await pause();

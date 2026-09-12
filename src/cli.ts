@@ -109,24 +109,41 @@ export function buildProgram(): Command {
   notebook
     .command("list")
     .addOption(platformOption())
-    .option("--start-server", "allow one approved SuperMind Python 3.8 server startup")
-    .action(async ({ platform, startServer }: { platform: Platform; startServer?: boolean }) => {
-      const { http, jar } = await clientFor(platform);
-      const session = await notebookSession(platform, http, { startServer: startServer === true, jar });
-      emit({
-        ok: true,
+    .option(
+      "--start-server",
+      "allow one approved SuperMind Python 3.8 server startup",
+    )
+    .action(
+      async ({
         platform,
-        kernels: session.kernels,
-        startedServer: session.serverStart?.submitted === true,
-        ...(session.serverStart ? { serverStart: session.serverStart } : {}),
-      });
-    });
+        startServer,
+      }: {
+        platform: Platform;
+        startServer?: boolean;
+      }) => {
+        const { http, jar } = await clientFor(platform);
+        const session = await notebookSession(platform, http, {
+          startServer: startServer === true,
+          jar,
+        });
+        emit({
+          ok: true,
+          platform,
+          kernels: session.kernels,
+          startedServer: session.serverStart?.submitted === true,
+          ...(session.serverStart ? { serverStart: session.serverStart } : {}),
+        });
+      },
+    );
   notebook
     .command("exec")
     .argument("<file>", "local Python file")
     .addOption(platformOption())
     .option("--kernel-id <id>", "explicit existing kernel ID")
-    .option("--start-server", "allow one approved SuperMind Python 3.8 server startup")
+    .option(
+      "--start-server",
+      "allow one approved SuperMind Python 3.8 server startup",
+    )
     .option(
       "--max-output-bytes <bytes>",
       "total incoming channel byte budget (max 64000000)",
@@ -184,7 +201,10 @@ export function buildProgram(): Command {
             "Python source file is empty",
           );
         const { http, jar } = await clientFor(options.platform);
-        const session = await notebookSession(options.platform, http, { startServer: options.startServer === true, jar });
+        const session = await notebookSession(options.platform, http, {
+          startServer: options.startServer === true,
+          jar,
+        });
         let id = options.kernelId;
         let owned = false;
         if (id && !session.kernels.some((kernel) => kernel.id === id))
@@ -224,7 +244,12 @@ export function buildProgram(): Command {
             result,
             cleanedUp,
           );
-          emit({ ...report, ...(session.serverStart ? { serverStart: session.serverStart } : {}) });
+          emit({
+            ...report,
+            ...(session.serverStart
+              ? { serverStart: session.serverStart }
+              : {}),
+          });
           if (!report.ok) process.exitCode = 1;
         } catch (error) {
           if (owned) {

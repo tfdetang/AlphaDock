@@ -67,9 +67,12 @@ export function buildProgram() {
         .command("list")
         .addOption(platformOption())
         .option("--start-server", "allow one approved SuperMind Python 3.8 server startup")
-        .action(async ({ platform, startServer }) => {
+        .action(async ({ platform, startServer, }) => {
         const { http, jar } = await clientFor(platform);
-        const session = await notebookSession(platform, http, { startServer: startServer === true, jar });
+        const session = await notebookSession(platform, http, {
+            startServer: startServer === true,
+            jar,
+        });
         emit({
             ok: true,
             platform,
@@ -102,7 +105,10 @@ export function buildProgram() {
         if (!code.trim())
             throw new CliError("EMPTY_SOURCE", "input", "Python source file is empty");
         const { http, jar } = await clientFor(options.platform);
-        const session = await notebookSession(options.platform, http, { startServer: options.startServer === true, jar });
+        const session = await notebookSession(options.platform, http, {
+            startServer: options.startServer === true,
+            jar,
+        });
         let id = options.kernelId;
         let owned = false;
         if (id && !session.kernels.some((kernel) => kernel.id === id))
@@ -119,7 +125,12 @@ export function buildProgram() {
                 ? await deleteKernel(session, id, http, jar).catch(() => false)
                 : undefined;
             const report = notebookExecutionReport(options.platform, id, owned, result, cleanedUp);
-            emit({ ...report, ...(session.serverStart ? { serverStart: session.serverStart } : {}) });
+            emit({
+                ...report,
+                ...(session.serverStart
+                    ? { serverStart: session.serverStart }
+                    : {}),
+            });
             if (!report.ok)
                 process.exitCode = 1;
         }

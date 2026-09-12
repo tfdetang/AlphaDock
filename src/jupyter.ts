@@ -3,7 +3,10 @@ import WebSocket from "ws";
 import type { CookieJar } from "tough-cookie";
 import { CliError } from "./errors.js";
 import { safeCauseCode } from "./transport-diagnostics.js";
-import { startNotebookServer, type ServerStartReport } from "./notebook-startup.js";
+import {
+  startNotebookServer,
+  type ServerStartReport,
+} from "./notebook-startup.js";
 import { SafeHttp, parseJson } from "./http.js";
 import type { Platform } from "./storage.js";
 
@@ -118,7 +121,11 @@ export async function notebookSession(
   options: { startServer?: boolean; jar?: CookieJar } = {},
 ): Promise<NotebookSession> {
   if (options.startServer && !options.jar)
-    throw new CliError("STARTUP_CONTEXT_REQUIRED", "input", "Startup requires the authenticated cookie jar");
+    throw new CliError(
+      "STARTUP_CONTEXT_REQUIRED",
+      "input",
+      "Startup requires the authenticated cookie jar",
+    );
   let response;
   if (platform === "joinquant") {
     const bootstrap = await http.request(
@@ -147,8 +154,17 @@ export async function notebookSession(
   let serverStart: ServerStartReport | undefined;
   if (/\/spawn(?:-pending)?(?:\/|$)/.test(response.url.pathname)) {
     if (!options.startServer || !options.jar)
-      throw new CliError("SERVER_NOT_READY", "auth", "Notebook server is not ready; authorized agents may use --start-server");
-    const started = await startNotebookServer(platform, response, http, options.jar);
+      throw new CliError(
+        "SERVER_NOT_READY",
+        "auth",
+        "Notebook server is not ready; authorized agents may use --start-server",
+      );
+    const started = await startNotebookServer(
+      platform,
+      response,
+      http,
+      options.jar,
+    );
     base = started.base;
     serverStart = started.report;
   }
