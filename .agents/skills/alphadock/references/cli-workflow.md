@@ -35,6 +35,14 @@ alphadock notebook exec research.py --platform joinquant --temporary --confirm-r
 
 检查 `state`、`reply`、`idle`、`errors` 和 `cleanedUp`。执行成功但清理失败也需要报告保留的 kernel ID；不要重跑代码来“修复”清理失败。平台沙箱可能拒绝某些导入，不能靠安装本地 Python 包解决。
 
+### 研究服务器休眠
+
+用户已授权远程研究及 SuperMind Python 3.8 环境时，agent 应主动使用 `alphadock notebook list --platform supermind --start-server`，或在一条新的、明确授权的 `notebook exec ... --start-server` 命令中处理休眠，不必让用户去网页操作。`list` 不执行 Python，也不创建 kernel。未带标志时仍保持原有不启动行为；标志不替代用户授权。
+
+只识别平台已核实的 Python 3.8 选项，不选择 Python 3.5 默认或 3.11 Beta，不额外选择 CPU/GPU/内存规格，不确认收费或登录提示；页面结构变化、其他平台或状态接口不可用时保守停止。不承诺平台默认服务永久免费，出现计费提示必须询问。已有运行环境不切换版本；已有启动过程只读取状态，不再提交，也不把其版本宣称为 3.8。
+
+启动前写私有 journal 和独占锁，最多提交一次 POST，绝不跟随会重发 POST 的重定向。之后最多查询状态 24 次、间隔 5 秒；每次 HTTP 仍有独立超时，不能把它理解为严格 120 秒总时限。报告 `serverStart` 的 submitted/state、已确认选择的 profile 和本次 operationId。只有本次启动确认就绪才释放自己的锁；未知结果保留 `operations/` 与 `server-start-locks/`，不能删锁、换参数或反复调用来绕过保护，需要先核对现场。就绪不代表此前代码已完成，禁止自动重放未知执行。
+
 ### 小批量取数与断连
 
 Notebook 的 WebSocket 是执行通道，不应当作可靠的大文件导出通道。宽表的行数不代表输出字节数：日期、条款等长文本字段会显著增加 CSV 大小。不要默认一次输出 100 行全部字段；只查询当前需要的列，字段选择语法先查平台 API。宽表可先从每页 10–20 行的小样本起步，并统计序列化后的 UTF-8 字节数；这是保守起点，不是平台公布的安全上限。避免直接打印完整 DataFrame、长文本或重复调试输出。

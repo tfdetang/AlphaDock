@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { CliError } from "./errors.js";
 import { safeCauseCode } from "./transport-diagnostics.js";
+import { startNotebookServer } from "./notebook-startup.js";
 import { parseJson } from "./http.js";
 export function notebookExecutionReport(platform, kernelId, temporary, execution, cleanedUp) {
     return {
@@ -51,7 +52,9 @@ function userBase(platform, url) {
     const found = pattern.exec(url.pathname);
     return found ? `${url.origin}${found[1]}` : undefined;
 }
-export async function notebookSession(platform, http) {
+export async function notebookSession(platform, http, options = {}) {
+    if (options.startServer && !options.jar)
+        throw new CliError("STARTUP_CONTEXT_REQUIRED", "input", "Startup requires the authenticated cookie jar");
     let response;
     if (platform === "joinquant") {
         const bootstrap = await http.request("https://www.joinquant.com/default/research/redirect", { redirects: 0 });
@@ -66,9 +69,15 @@ export async function notebookSession(platform, http) {
     }
     else
         response = await http.request("https://supermind.10jqka.com.cn/notebook/hub/login");
-    if (response.url.pathname.includes("/spawn"))
-        throw new CliError("SERVER_NOT_READY", "auth", "Notebook server is stopped; automatic startup is not supported");
-    const base = userBase(platform, response.url);
+    let base = userBase(platform, response.url);
+    let serverStart;
+    if (/\/spawn(?:-pending)?(?:\/|$)/.test(response.url.pathname)) {
+        if (!options.startServer || !options.jar)
+            throw new CliError("SERVER_NOT_READY", "auth", "Notebook server is not ready; authorized agents may use --start-server");
+        const started = await startNotebookServer(platform, response, http, options.jar);
+        base = started.base;
+        serverStart = started.report;
+    }
     if (!base)
         throw new CliError("AUTH_UNVERIFIED", "auth", "Authenticated notebook base was not verified");
     const kernelsResponse = await http.request(`${base}api/kernels`);
@@ -87,6 +96,7 @@ export async function notebookSession(platform, http) {
     const specs = parseJson(specsResponse.body);
     return {
         base,
+        ...(serverStart ? { serverStart } : {}),
         kernels: kernelsValue.filter((v) => !!v &&
             typeof v === "object" &&
             typeof v.id === "string"),
@@ -125,7 +135,10 @@ export const DEFAULT_NOTEBOOK_BYTES = 1_000_000;
 export const MAX_NOTEBOOK_BYTES = 64_000_000;
 export function notebookByteLimit(value) {
     const number = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
-    if (typeof number !== "number" || !Number.isSafeInteger(number) || number < 1 || number > MAX_NOTEBOOK_BYTES)
+    if (typeof number !== "number" ||
+        !Number.isSafeInteger(number) ||
+        number < 1 ||
+        number > MAX_NOTEBOOK_BYTES)
         throw new CliError("INVALID_OUTPUT_LIMIT", "input", "Notebook byte limits must be integers from 1 to 64000000");
     return number;
 }
@@ -167,10 +180,20 @@ export async function executeKernel(session, kernelId, code, jar, timeoutMs = 90
         receivedMessages: messages,
         maxMessageBytes,
         maxTotalBytes: maxBytes,
-        reply: result.reply === "ok" || result.reply === "error" || result.reply === "abort"
-            ? result.reply : result.reply ? "unknown" : "missing",
+        reply: result.reply === "ok" ||
+            result.reply === "error" ||
+            result.reply === "abort"
+            ? result.reply
+            : result.reply
+                ? "unknown"
+                : "missing",
         idle: result.idle,
-        ...(typeof closeCode === "number" && Number.isInteger(closeCode) && closeCode >= 1000 && closeCode <= 4999 ? { closeCode } : {}),
+        ...(typeof closeCode === "number" &&
+            Number.isInteger(closeCode) &&
+            closeCode >= 1000 &&
+            closeCode <= 4999
+            ? { closeCode }
+            : {}),
     });
     return new Promise((resolve, reject) => {
         let socket;
@@ -184,7 +207,9 @@ export async function executeKernel(session, kernelId, code, jar, timeoutMs = 90
             try {
                 socket?.close();
             }
-            catch { /* no retry or second settlement */ }
+            catch {
+                /* no retry or second settlement */
+            }
             if (error)
                 reject(error);
             else {
@@ -245,7 +270,9 @@ export async function executeKernel(session, kernelId, code, jar, timeoutMs = 90
             bytes += size;
             messages++;
             if (size > maxMessageBytes || bytes > maxBytes)
-                return finish(failure("OUTPUT_LIMIT", "Notebook output exceeded the safe limit; execution may be incomplete", size > maxMessageBytes ? "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" : "TOTAL_BYTES_LIMIT"));
+                return finish(failure("OUTPUT_LIMIT", "Notebook output exceeded the safe limit; execution may be incomplete", size > maxMessageBytes
+                    ? "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH"
+                    : "TOTAL_BYTES_LIMIT"));
             let message;
             try {
                 message = JSON.parse(raw.toString());
@@ -260,7 +287,9 @@ export async function executeKernel(session, kernelId, code, jar, timeoutMs = 90
         });
         socket.once("error", (error) => {
             const cause = safeCauseCode(error);
-            finish(failure(cause === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" ? "OUTPUT_LIMIT" : "EXECUTION_UNVERIFIED", "Notebook channel failed; execution was not retried", cause));
+            finish(failure(cause === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH"
+                ? "OUTPUT_LIMIT"
+                : "EXECUTION_UNVERIFIED", "Notebook channel failed; execution was not retried", cause));
         });
         socket.once("close", (code) => {
             if (!settled)

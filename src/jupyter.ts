@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import type { CookieJar } from "tough-cookie";
 import { CliError } from "./errors.js";
 import { safeCauseCode } from "./transport-diagnostics.js";
+import { startNotebookServer, type ServerStartReport } from "./notebook-startup.js";
 import { SafeHttp, parseJson } from "./http.js";
 import type { Platform } from "./storage.js";
 
@@ -40,6 +41,7 @@ export function notebookExecutionReport(
 }
 export interface NotebookSession {
   base: string;
+  serverStart?: ServerStartReport;
   kernels: Array<{ id: string; name?: string; execution_state?: string }>;
   defaultKernel?: string;
 }
@@ -113,7 +115,10 @@ function userBase(platform: Platform, url: URL): string | undefined {
 export async function notebookSession(
   platform: Platform,
   http: SafeHttp,
+  options: { startServer?: boolean; jar?: CookieJar } = {},
 ): Promise<NotebookSession> {
+  if (options.startServer && !options.jar)
+    throw new CliError("STARTUP_CONTEXT_REQUIRED", "input", "Startup requires the authenticated cookie jar");
   let response;
   if (platform === "joinquant") {
     const bootstrap = await http.request(
@@ -138,13 +143,15 @@ export async function notebookSession(
     response = await http.request(
       "https://supermind.10jqka.com.cn/notebook/hub/login",
     );
-  if (response.url.pathname.includes("/spawn"))
-    throw new CliError(
-      "SERVER_NOT_READY",
-      "auth",
-      "Notebook server is stopped; automatic startup is not supported",
-    );
-  const base = userBase(platform, response.url);
+  let base = userBase(platform, response.url);
+  let serverStart: ServerStartReport | undefined;
+  if (/\/spawn(?:-pending)?(?:\/|$)/.test(response.url.pathname)) {
+    if (!options.startServer || !options.jar)
+      throw new CliError("SERVER_NOT_READY", "auth", "Notebook server is not ready; authorized agents may use --start-server");
+    const started = await startNotebookServer(platform, response, http, options.jar);
+    base = started.base;
+    serverStart = started.report;
+  }
   if (!base)
     throw new CliError(
       "AUTH_UNVERIFIED",
@@ -162,7 +169,11 @@ export async function notebookSession(
   try {
     kernelsValue = JSON.parse(kernelsResponse.body);
   } catch {
-    throw new CliError("RESPONSE_INVALID", "protocol", "Kernel list is not valid JSON");
+    throw new CliError(
+      "RESPONSE_INVALID",
+      "protocol",
+      "Kernel list is not valid JSON",
+    );
   }
   if (!Array.isArray(kernelsValue))
     throw new CliError(
@@ -174,6 +185,7 @@ export async function notebookSession(
   const specs = parseJson(specsResponse.body);
   return {
     base,
+    ...(serverStart ? { serverStart } : {}),
     kernels: kernelsValue.filter(
       (v): v is { id: string } =>
         !!v &&
@@ -242,9 +254,19 @@ export const DEFAULT_NOTEBOOK_BYTES = 1_000_000;
 export const MAX_NOTEBOOK_BYTES = 64_000_000;
 
 export function notebookByteLimit(value: string | number): number {
-  const number = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
-  if (typeof number !== "number" || !Number.isSafeInteger(number) || number < 1 || number > MAX_NOTEBOOK_BYTES)
-    throw new CliError("INVALID_OUTPUT_LIMIT", "input", "Notebook byte limits must be integers from 1 to 64000000");
+  const number =
+    typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+  if (
+    typeof number !== "number" ||
+    !Number.isSafeInteger(number) ||
+    number < 1 ||
+    number > MAX_NOTEBOOK_BYTES
+  )
+    throw new CliError(
+      "INVALID_OUTPUT_LIMIT",
+      "input",
+      "Notebook byte limits must be integers from 1 to 64000000",
+    );
   return number;
 }
 
@@ -267,7 +289,9 @@ export async function executeKernel(
   let endpoint: URL;
   let origin: string;
   try {
-    endpoint = new URL(`${session.base}api/kernels/${encodeURIComponent(kernelId)}/channels`);
+    endpoint = new URL(
+      `${session.base}api/kernels/${encodeURIComponent(kernelId)}/channels`,
+    );
     origin = endpoint.origin;
   } catch {
     throw new CliError("URL_INVALID", "input", "Notebook base is invalid");
@@ -286,7 +310,12 @@ export async function executeKernel(
   let bytes = 0;
   let messages = 0;
   const startedAt = performance.now();
-  const failure = (code: string, message: string, causeCode = "UNKNOWN", closeCode?: number) =>
+  const failure = (
+    code: string,
+    message: string,
+    causeCode = "UNKNOWN",
+    closeCode?: number,
+  ) =>
     new CliError(code, "remote", message, {
       operation: "notebook_execute",
       failurePhase: "channel",
@@ -297,10 +326,21 @@ export async function executeKernel(
       receivedMessages: messages,
       maxMessageBytes,
       maxTotalBytes: maxBytes,
-      reply: result.reply === "ok" || result.reply === "error" || result.reply === "abort"
-        ? result.reply : result.reply ? "unknown" : "missing",
+      reply:
+        result.reply === "ok" ||
+        result.reply === "error" ||
+        result.reply === "abort"
+          ? result.reply
+          : result.reply
+            ? "unknown"
+            : "missing",
       idle: result.idle,
-      ...(typeof closeCode === "number" && Number.isInteger(closeCode) && closeCode >= 1000 && closeCode <= 4999 ? { closeCode } : {}),
+      ...(typeof closeCode === "number" &&
+      Number.isInteger(closeCode) &&
+      closeCode >= 1000 &&
+      closeCode <= 4999
+        ? { closeCode }
+        : {}),
     });
   return new Promise((resolve, reject) => {
     let socket: SocketLike | undefined;
@@ -310,7 +350,11 @@ export async function executeKernel(
       settled = true;
       clearTimeout(timer);
       // Closing an already failed socket must not replace the original failure.
-      try { socket?.close(); } catch { /* no retry or second settlement */ }
+      try {
+        socket?.close();
+      } catch {
+        /* no retry or second settlement */
+      }
       if (error) reject(error);
       else {
         result.state =
@@ -338,38 +382,50 @@ export async function executeKernel(
         maxPayload: maxMessageBytes,
       });
     } catch (error) {
-      finish(failure("EXECUTION_UNVERIFIED", "Notebook channel could not be opened", safeCauseCode(error)));
+      finish(
+        failure(
+          "EXECUTION_UNVERIFIED",
+          "Notebook channel could not be opened",
+          safeCauseCode(error),
+        ),
+      );
       return;
     }
     socket.once("open", () => {
       if (settled || !socket) return;
       try {
-      socket.send(
-        JSON.stringify({
-          header: {
-            msg_id: messageId,
-            username: "alphadock",
-            session: sessionId,
-            date: new Date().toISOString(),
-            msg_type: "execute_request",
-            version: "5.3",
-          },
-          parent_header: {},
-          metadata: {},
-          channel: "shell",
-          content: {
-            code,
-            silent: false,
-            store_history: false,
-            user_expressions: {},
-            allow_stdin: false,
-            stop_on_error: true,
-          },
-          buffers: [],
-        }),
-      );
+        socket.send(
+          JSON.stringify({
+            header: {
+              msg_id: messageId,
+              username: "alphadock",
+              session: sessionId,
+              date: new Date().toISOString(),
+              msg_type: "execute_request",
+              version: "5.3",
+            },
+            parent_header: {},
+            metadata: {},
+            channel: "shell",
+            content: {
+              code,
+              silent: false,
+              store_history: false,
+              user_expressions: {},
+              allow_stdin: false,
+              stop_on_error: true,
+            },
+            buffers: [],
+          }),
+        );
       } catch (error) {
-        finish(failure("EXECUTION_UNVERIFIED", "Notebook channel send failed; execution was not retried", safeCauseCode(error)));
+        finish(
+          failure(
+            "EXECUTION_UNVERIFIED",
+            "Notebook channel send failed; execution was not retried",
+            safeCauseCode(error),
+          ),
+        );
       }
     });
     socket.on("message", (raw) => {
@@ -378,11 +434,15 @@ export async function executeKernel(
       bytes += size;
       messages++;
       if (size > maxMessageBytes || bytes > maxBytes)
-        return finish(failure(
-          "OUTPUT_LIMIT",
-          "Notebook output exceeded the safe limit; execution may be incomplete",
-          size > maxMessageBytes ? "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" : "TOTAL_BYTES_LIMIT",
-        ));
+        return finish(
+          failure(
+            "OUTPUT_LIMIT",
+            "Notebook output exceeded the safe limit; execution may be incomplete",
+            size > maxMessageBytes
+              ? "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH"
+              : "TOTAL_BYTES_LIMIT",
+          ),
+        );
       let message: JupyterMessage;
       try {
         message = JSON.parse(raw.toString()) as JupyterMessage;
@@ -397,20 +457,36 @@ export async function executeKernel(
         );
       }
       if (!message || typeof message !== "object" || Array.isArray(message))
-        return finish(failure("CHANNEL_FRAME_INVALID", "Notebook channel returned an unsupported frame"));
+        return finish(
+          failure(
+            "CHANNEL_FRAME_INVALID",
+            "Notebook channel returned an unsupported frame",
+          ),
+        );
       if (consumeExecutionMessage(result, message, messageId)) finish();
     });
     socket.once("error", (error) => {
       const cause = safeCauseCode(error);
-      finish(failure(
-        cause === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" ? "OUTPUT_LIMIT" : "EXECUTION_UNVERIFIED",
-        "Notebook channel failed; execution was not retried",
-        cause,
-      ));
+      finish(
+        failure(
+          cause === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH"
+            ? "OUTPUT_LIMIT"
+            : "EXECUTION_UNVERIFIED",
+          "Notebook channel failed; execution was not retried",
+          cause,
+        ),
+      );
     });
     socket.once("close", (code) => {
       if (!settled)
-        finish(failure("EXECUTION_UNVERIFIED", "Notebook channel closed before completion", "UNKNOWN", code));
+        finish(
+          failure(
+            "EXECUTION_UNVERIFIED",
+            "Notebook channel closed before completion",
+            "UNKNOWN",
+            code,
+          ),
+        );
     });
   });
 }

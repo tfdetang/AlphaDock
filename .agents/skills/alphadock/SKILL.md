@@ -30,7 +30,7 @@ description: 使用 AlphaDock CLI 在聚宽 JoinQuant 或同花顺 SuperMind 上
 - 创建/提交失败且结果未知时，先保留 operation ID、远程 ID 和本地 journal，禁止自动重试或删 journal 绕过重复保护。只做已知 ID 的只读查询；无法确认则询问用户。
 - `accepted: true` 不等于回测完成；退出码 0 / `ok: true` 也不等于策略成功。读 `state`、`verified`、错误日志与 `bounds`。超时不表示取消。
 - 结果可能分页/截断；`[]` 表示已返回的空集合，`null` 表示不可用，不能互换。不要把买卖金额曲线当成逐笔成交，也不要把日志 `total` 当错误数。
-- 不做实盘、充值、删除远程策略/回测、自动启动停止的研究服务器，或未经授权的浏览器兜底。
+- 不做实盘、充值、删除远程策略/回测，或未经授权的浏览器兜底。用户已授权研究任务及 SuperMind Python 3.8 环境时，agent 可主动用 `notebook list/exec --start-server` 处理休眠，无需让用户打开网页；参照 [CLI 流程](references/cli-workflow.md)。收费、额外资源/环境选择、认证障碍或启动结果未知时暂停，不重复启动或重放旧代码。其他平台不自动启动。
 
 ## 交付
 

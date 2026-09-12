@@ -71,6 +71,10 @@ export function safeCauseCode(error) {
 }
 function operation(url, method) {
     const path = url.pathname;
+    if (path === "/notebook/hub/spawn" && method === "POST")
+        return "server_start";
+    if (path === "/notebook/hub/api/user" && method === "GET")
+        return "server_status";
     if (path === "/notebook/hub/login" || path === "/hub/login")
         return "notebook_login";
     if (path === "/default/research/redirect")

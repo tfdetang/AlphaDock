@@ -66,14 +66,16 @@ export function buildProgram() {
     notebook
         .command("list")
         .addOption(platformOption())
-        .action(async ({ platform }) => {
-        const { http } = await clientFor(platform);
-        const session = await notebookSession(platform, http);
+        .option("--start-server", "allow one approved SuperMind Python 3.8 server startup")
+        .action(async ({ platform, startServer }) => {
+        const { http, jar } = await clientFor(platform);
+        const session = await notebookSession(platform, http, { startServer: startServer === true, jar });
         emit({
             ok: true,
             platform,
             kernels: session.kernels,
-            startedServer: false,
+            startedServer: session.serverStart?.submitted === true,
+            ...(session.serverStart ? { serverStart: session.serverStart } : {}),
         });
     });
     notebook
@@ -81,6 +83,7 @@ export function buildProgram() {
         .argument("<file>", "local Python file")
         .addOption(platformOption())
         .option("--kernel-id <id>", "explicit existing kernel ID")
+        .option("--start-server", "allow one approved SuperMind Python 3.8 server startup")
         .option("--max-output-bytes <bytes>", "total incoming channel byte budget (max 64000000)", String(DEFAULT_NOTEBOOK_BYTES))
         .option("--max-message-bytes <bytes>", "single WebSocket message byte budget (max 64000000)", String(DEFAULT_NOTEBOOK_BYTES))
         .option("--temporary", "create and clean up an AlphaDock-owned temporary kernel")
@@ -99,7 +102,7 @@ export function buildProgram() {
         if (!code.trim())
             throw new CliError("EMPTY_SOURCE", "input", "Python source file is empty");
         const { http, jar } = await clientFor(options.platform);
-        const session = await notebookSession(options.platform, http);
+        const session = await notebookSession(options.platform, http, { startServer: options.startServer === true, jar });
         let id = options.kernelId;
         let owned = false;
         if (id && !session.kernels.some((kernel) => kernel.id === id))
@@ -116,7 +119,7 @@ export function buildProgram() {
                 ? await deleteKernel(session, id, http, jar).catch(() => false)
                 : undefined;
             const report = notebookExecutionReport(options.platform, id, owned, result, cleanedUp);
-            emit(report);
+            emit({ ...report, ...(session.serverStart ? { serverStart: session.serverStart } : {}) });
             if (!report.ok)
                 process.exitCode = 1;
         }

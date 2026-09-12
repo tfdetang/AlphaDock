@@ -111,7 +111,7 @@ test("notebookSession rejects stopped-server spawn redirect without automatic st
     const http = new SafeHttp(platform, new CookieJar(), transport);
     await assert.rejects(
       () => notebookSession(platform, http),
-      /Notebook server is stopped; automatic startup is not supported/,
+      /Notebook server is not ready/,
     );
   }
 });

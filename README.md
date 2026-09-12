@@ -63,7 +63,7 @@ Auth status uses a guarded authenticated resource and does not treat a bare HTTP
 Use `alphadock <command> --help` for all options.
 
 ```sh
-# Existing sessions only; listing never starts a server or kernel.
+# Listing is read-only by default; it never creates a kernel.
 alphadock notebook list --platform joinquant
 
 # Exactly one explicit existing kernel or an owned temporary kernel.
@@ -91,6 +91,8 @@ alphadock api show get_price --platform supermind
 Operational results and errors are structured JSON on stdout. Help and API catalog output are human-readable. `--out` uses exclusive creation and never overwrites. IDs, dates, positive finite cash, frequency, confirmations, timeout and interval are validated before remote write effects.
 
 HTTP request failures keep `error.code: "TRANSPORT_FAILED"` and `error.stage: "transport"`, with an additional `error.diagnostics` object. Body-read failures keep the distinct `RESPONSE_STREAM_FAILED` code. Diagnostics contain only an operation label (`notebook_login`, `notebook_bootstrap`, `notebook_route`, `kernel_list`, `kernelspecs`, `kernel_create`, `kernel_delete`, or `http_request`), HTTP method, allowlisted hostname, `failurePhase` (`request` or `response_body`), per-hop `elapsedMs`, configured `timeoutMs`, zero-based `redirectHop`, and allowlisted `causeCode` (for example `ENOTFOUND`, `ECONNRESET`, `UND_ERR_CONNECT_TIMEOUT`, or `UNKNOWN`). `TIMEOUT`/`ABORTED` reflect recognized exception names, not guesses from elapsed time. No URL paths/query strings, usernames, kernel IDs, request bodies, cookies, raw exception messages, or stacks are included.
+
+For an authorized SuperMind research task with approved Python 3.8, agents can add `--start-server` to `notebook list` or `notebook exec` to handle a sleeping server. Only the recognized Python 3.8 profile is selected; payment, extra resource choices, authentication gates, changed forms, and unsupported platforms fail closed. No first login or payment is automated. Existing running servers are not switched to a different environment. Pending starts are only observed, not resubmitted. Startup writes a private journal and exclusive lock before one POST, then checks authenticated state at most 24 times with 5-second pauses (each HTTP request has its own timeout). Unknown outcomes retain the journal and lock and are not retried across invocations. Never delete these records to bypass the guard, or replay an earlier unknown execution when the server becomes ready. Read the returned `serverStart` metadata; `list` still never executes code or creates a kernel.
 
 Notebook text streams, display text and error values are retained without silent per-message truncation. `notebook exec --max-output-bytes N --max-message-bytes N` controls cumulative incoming channel message bytes (including protocol overhead and unrelated execution messages) and the individual WebSocket message limit independently. Both default to 1,000,000 bytes and accept integers from 1 to 64,000,000. Exceeding either limit fails with `OUTPUT_LIMIT`, not a successful partial result; it does not prove remote execution stopped. Small pages and minimal selected fields remain preferable to simply raising limits.
 
@@ -126,4 +128,4 @@ Do not pass cookie values or inline remote code on the command line.
 
 `api` is a useful curated subset, not complete documentation. Every entry labels environment, source URL, and provenance. It covers each platform's data and strategy lifecycle/order/benchmark examples; JoinQuant `get_backtest` status/params/risk/orders/results and documented-but-not-live-tested `create_backtest` are called out separately. Examples are minimal verified/documented usage, not invented full signatures.
 
-The prior no-browser validation used temporary Python probes and demonstrates platform feasibility only; it does **not** live-validate this TypeScript implementation. Platform contracts can change. First login, stopped-server startup, long runs, full pagination/export, paid/concurrency edge cases, and automatic session refresh remain unsupported or incompletely validated. When a platform response is ambiguous, AlphaDock fails closed and retains recoverable IDs rather than guessing or retrying.
+The prior no-browser validation used temporary Python probes and demonstrates platform feasibility only; it does **not** live-validate this TypeScript implementation. Platform contracts can change. First login, startup outside the narrowly recognized SuperMind Python 3.8 flow, long runs, full pagination/export, paid/concurrency edge cases, and automatic session refresh remain unsupported or incompletely validated. When a platform response is ambiguous, AlphaDock fails closed and retains recoverable IDs rather than guessing or retrying.

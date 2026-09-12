@@ -1,4 +1,5 @@
 import type { CookieJar } from "tough-cookie";
+import { type ServerStartReport } from "./notebook-startup.js";
 import { SafeHttp } from "./http.js";
 import type { Platform } from "./storage.js";
 export interface ExecutionResult {
@@ -29,6 +30,7 @@ export interface NotebookExecutionReport {
 export declare function notebookExecutionReport(platform: Platform, kernelId: string, temporary: boolean, execution: ExecutionResult, cleanedUp?: boolean): NotebookExecutionReport;
 export interface NotebookSession {
     base: string;
+    serverStart?: ServerStartReport;
     kernels: Array<{
         id: string;
         name?: string;
@@ -60,7 +62,10 @@ export type SocketFactory = (url: URL, options: {
     maxPayload: number;
 }) => SocketLike;
 export declare function consumeExecutionMessage(result: ExecutionResult, message: JupyterMessage, messageId: string): boolean;
-export declare function notebookSession(platform: Platform, http: SafeHttp): Promise<NotebookSession>;
+export declare function notebookSession(platform: Platform, http: SafeHttp, options?: {
+    startServer?: boolean;
+    jar?: CookieJar;
+}): Promise<NotebookSession>;
 export declare function createKernel(session: NotebookSession, http: SafeHttp, jar: CookieJar): Promise<string>;
 export declare function deleteKernel(session: NotebookSession, id: string, http: SafeHttp, jar: CookieJar): Promise<boolean>;
 export declare const DEFAULT_NOTEBOOK_BYTES = 1000000;
